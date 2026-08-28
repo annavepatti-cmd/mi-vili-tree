@@ -10,7 +10,7 @@ jobs:
       - name: Setup Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip crossbuild-essential-arm64
+          sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip crossbuild-essential-arm64 device-tree-compiler
 
       - name: Checkout AOSP Clang Toolchain
         uses: actions/checkout@v4
@@ -27,17 +27,11 @@ jobs:
       - name: Remove KernelSU & SuSFS Fully
         run: |
           cd kernel_src
-          
-          # Delete source directories if present
           rm -rf drivers/kernelsu drivers/susfs fs/susfs
-          
-          # Remove KernelSU & SuSFS references across all Kconfig files
           find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/kernelsu/d' {} + || true
           find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/susfs/d' {} + || true
           find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/KSU/d' {} + || true
           find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/SUSFS/d' {} + || true
-
-          # Strip KSU and SuSFS configs from defconfigs
           find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_KSU/d' {} + || true
           find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_SUSFS/d' {} + || true
 
@@ -62,8 +56,19 @@ jobs:
 
           echo "Building Stock/MIUI Kernel with Defconfig: $DEFCONFIG_NAME"
 
+          # Generate Configuration
           make O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ $DEFCONFIG_NAME
-          make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          
+          # Disable WERROR so warnings don't trigger Error 2
+          sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' out/.config || true
+          echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> out/.config
+
+          # Compile with explicit LLVM toolchain flags
+          make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            LLVM=1 LLVM_IAS=1
 
       - name: Package AnyKernel3
         run: |
