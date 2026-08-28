@@ -11,13 +11,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
+          
+          # Fetch AOSP Clang 14 (r450784d)
+          mkdir -p $HOME/aosp-clang
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz
+          tar -xf clang-r450784d.tar.gz -C $HOME/aosp-clang
+          rm clang-r450784d.tar.gz
+          
           git clone --depth=1 https://github.com/vili-develop/kernel_xiaomi_vili-RED.git kernel_src
 
       - name: Apply Audio Patches and Build Kernel
         run: |
           cd kernel_src
-          export PATH="$HOME/proton-clang/bin:$PATH"
+          export PATH="$HOME/aosp-clang/bin:$PATH"
           
           # Fix Techpack Audio DSP Fallthrough Errors
           find . -type f -name "q6afe.c" -exec sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' {} + || true
@@ -29,14 +35,13 @@ jobs:
           DEFCONFIG_NAME=$(basename "$DEFCONFIG_FILE")
           echo "Building with Defconfig: $DEFCONFIG_NAME"
 
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG_NAME
-          make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          make O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ $DEFCONFIG_NAME
+          make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       - name: Package AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AK3
           
-          # Search anywhere inside kernel_src for the built kernel binary
           IMAGE_PATH=$(find kernel_src/ -type f \( -name "Image.gz-dtb" -o -name "Image.gz" \) | head -n 1)
           
           if [ -z "$IMAGE_PATH" ]; then
