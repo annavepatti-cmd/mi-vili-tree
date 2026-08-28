@@ -9,31 +9,36 @@ jobs:
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
 
       - name: Install Build Toolchains & Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip crossbuild-essential-arm64
 
-      - name: Apply Techpack DSP GCC 10+ Compatibility Patches
+      - name: Find and Apply Techpack DSP Compatibility Patches
         run: |
-          sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' techpack/audio/dsp/q6afe.c || true
-          sed -i 's/if (clk_src_name != NULL)/if (clk_src_name\[0\]\[0\])/g' techpack/audio/dsp/q6afe.c || true
-          sed -i 's/if (clk_src_name\[CLK_SRC_FRACT\] != NULL)/if (clk_src_name\[CLK_SRC_FRACT\]\[0\])/g' techpack/audio/dsp/q6afe.c || true
-          sed -i 's/\} else if (clk_src_name\[CLK_SRC_INTEGRAL\] != NULL)/\} else if (clk_src_name\[CLK_SRC_INTEGRAL\]\[0\])/g' techpack/audio/dsp/q6afe.c || true
-          sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' techpack/audio/dsp/q6afe.c || true
-          sed -i 's/.*case ASM_MEDIA_FMT_APTX_AD_SPEECH:/\t\t\/* fallthrough *\/\n&/g' techpack/audio/dsp/q6afe.c || true
-          sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' techpack/audio/dsp/q6asm.c || true
+          find . -type f -name "q6afe.c" -exec sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' {} + || true
+          find . -type f -name "q6afe.c" -exec sed -i 's/if (clk_src_name != NULL)/if (clk_src_name\[0\]\[0\])/g' {} + || true
+          find . -type f -name "q6afe.c" -exec sed -i 's/if (clk_src_name\[CLK_SRC_FRACT\] != NULL)/if (clk_src_name\[CLK_SRC_FRACT\]\[0\])/g' {} + || true
+          find . -type f -name "q6afe.c" -exec sed -i 's/\} else if (clk_src_name\[CLK_SRC_INTEGRAL\] != NULL)/\} else if (clk_src_name\[CLK_SRC_INTEGRAL\]\[0\])/g' {} + || true
+          find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
+          find . -type f -name "q6afe.c" -exec sed -i 's/.*case ASM_MEDIA_FMT_APTX_AD_SPEECH:/\t\t\/* fallthrough *\/\n&/g' {} + || true
+          find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-      - name: Build Stock/Ports Kernel Image
+      - name: Locate Defconfig and Build Kernel
         run: |
-          make ARCH=arm64 vili_defconfig
+          DEFCONFIG=$(find arch/arm64/configs/ -name "*vili*" -o -name "*vendor*" | head -n 1 | xargs basename 2>/dev/null || echo "vili_defconfig")
+          echo "Using defconfig: $DEFCONFIG"
+          make ARCH=arm64 $DEFCONFIG
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
-      - name: Package AnyKernel3 (Stock MIUI/HyperOS & Ports Target)
+      - name: Package AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AK3
-          cp arch/arm64/boot/Image.gz-dtb AK3/Image.gz-dtb || cp arch/arm64/boot/Image.gz AK3/Image.gz
+          cp $(find arch/arm64/boot/ -name "Image.gz-dtb" -o -name "Image.gz" | head -n 1) AK3/Image.gz-dtb || true
           cd AK3
           cat << 'EOF' > anykernel.sh
           properties() { '
