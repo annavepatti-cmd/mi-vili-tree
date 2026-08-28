@@ -12,8 +12,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip crossbuild-essential-arm64
           
-          # Clone AOSP Clang directly from GitLab mirror (no tar/curl issues)
-          git clone --depth=1 https://gitlab.com/reaganknn/clang-r450784d.git $HOME/clang
+          # Clone official AOSP Clang 14 directly from Android Google Source
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $HOME/aosp-repo
+          mkdir -p $HOME/clang
+          cp -r $HOME/aosp-repo/clang-r450784d/* $HOME/clang/ || cp -r $HOME/aosp-repo/clang-r*/* $HOME/clang/
+          rm -rf $HOME/aosp-repo
           
           # Fetch Kernel Source
           git clone --depth=1 https://github.com/vili-develop/kernel_xiaomi_vili-RED.git kernel_src
