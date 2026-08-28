@@ -35,12 +35,7 @@ jobs:
           find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_KSU/d' {} + || true
           find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_SUSFS/d' {} + || true
 
-      - name: List Available Defconfigs
-        run: |
-          echo "=== Config files found in repository ==="
-          find kernel_src/arch/arm64/configs/ -type f
-
-      - name: Apply Techpack Audio Patches and Compile
+      - name: Apply Techpack Audio Patches and Merge Configs
         run: |
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           cd kernel_src
@@ -50,31 +45,33 @@ jobs:
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-          # Target exact defconfig file manually
-          if [ -f "arch/arm64/configs/vendor/vili_defconfig" ]; then
-            DEFCONFIG_NAME="vendor/vili_defconfig"
-          elif [ -f "arch/arm64/configs/vili_defconfig" ]; then
-            DEFCONFIG_NAME="vili_defconfig"
-          elif [ -f "arch/arm64/configs/vendor/lahaina_defconfig" ]; then
-            DEFCONFIG_NAME="vendor/lahaina_defconfig"
-          elif [ -f "arch/arm64/configs/lahaina_defconfig" ]; then
-            DEFCONFIG_NAME="lahaina_defconfig"
-          else
-            # Grab only files ending strictly with _defconfig
-            DEFCONFIG_PATH=$(find arch/arm64/configs/ -type f -name "*_defconfig" | head -n 1)
-            DEFCONFIG_NAME="${DEFCONFIG_PATH#arch/arm64/configs/}"
+          # Create output directory
+          mkdir -p out
+
+          # Locate Config Fragments dynamically
+          BASE_CONFIG=$(find arch/arm64/configs -type f \( -name "gki_defconfig" -o -name "vendor_defconfig" -o -name "*sm8350*defconfig*" \) | head -n 1)
+          VILI_CONFIGS=$(find arch/arm64/configs -type f -name "*vili*.config" | tr '\n' ' ')
+
+          if [ -z "$BASE_CONFIG" ]; then
+            # Fallback if no base gki_defconfig was found, grab any valid defconfig file
+            BASE_CONFIG=$(find arch/arm64/configs -type f -name "*defconfig*" | head -n 1)
           fi
 
-          echo "Building Stock/MIUI Kernel with Defconfig: $DEFCONFIG_NAME"
+          echo "Base Config: $BASE_CONFIG"
+          echo "Vili Fragments: $VILI_CONFIGS"
 
-          # Generate Configuration
-          make O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ "$DEFCONFIG_NAME"
-          
-          # Disable WERROR so minor warnings don't stop build
+          # Use merge_config.sh to generate combined .config inside out/
+          ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ scripts/kconfig/merge_config.sh -O out/ "$BASE_CONFIG" $VILI_CONFIGS
+
+          # Disable WERROR so minor compiler warnings do not break build
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' out/.config || true
           echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> out/.config
 
-          # Compile Kernel
+      - name: Compile Kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          cd kernel_src
+          
           make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
