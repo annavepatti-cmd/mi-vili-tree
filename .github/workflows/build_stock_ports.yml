@@ -1,250 +1,79 @@
-name: Build Vili Kernel
+name: Build Vili Kernel (MIUI / HyperOS & Ports)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
           fetch-depth: 1
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc \
-            bison \
-            build-essential \
-            ccache \
-            flex \
-            git \
-            libssl-dev \
-            libelf-dev \
-            python3 \
-            python3-pip \
-            zip \
-            unzip \
-            wget \
-            curl \
-            rsync
+          sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip
 
-      - name: Check Kernel Source
+      - name: Setup Proton Clang Toolchain
         run: |
-          echo "=========================================="
-          echo "CHECKING KERNEL SOURCE"
-          echo "=========================================="
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
-          test -d kernel
-          test -d kernel/arch/arm64
-          test -d kernel/arch/arm64/configs
-
-          echo
-          echo "Kernel directory:"
-          pwd
-          ls -la kernel
-
-          echo
-          echo "ARM64 configs:"
-          find kernel/arch/arm64/configs -maxdepth 1 -type f | sort
-
-      - name: Find Vili Defconfig
-        working-directory: kernel
+      - name: Apply Techpack Audio Patches
         run: |
-          echo "=========================================="
-          echo "SEARCHING FOR VILI DEFCONFIG"
-          echo "=========================================="
+          find . -type f -name "q6afe.c" -exec sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' {} + || true
+          find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
+          find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-          find arch/arm64/configs -type f \
-            \( -iname '*vili*' -o -iname '*sm8350*' \) \
-            -print | sort
-
-          echo
-          echo "Possible defconfigs:"
-          find arch/arm64/configs -maxdepth 1 -type f | sort | head -100
-
-      - name: Setup Proton Clang
+      - name: Build Kernel Image
         run: |
-          echo "=========================================="
-          echo "SETTING UP TOOLCHAIN"
-          echo "=========================================="
-
-          mkdir -p toolchains
-
-          if [ -d "$HOME/tissot-project/toolchains/proton-clang" ]; then
-            cp -a "$HOME/tissot-project/toolchains/proton-clang" toolchains/
-          fi
-
-          if [ -d "toolchains/proton-clang" ]; then
-            echo "Proton Clang already exists."
-          else
-            echo "Downloading Proton Clang..."
-
-            git clone --depth=1 \
-              https://github.com/kdrag0n/proton-clang.git \
-              toolchains/proton-clang
-          fi
-
-          echo
-          echo "Clang:"
-          toolchains/proton-clang/bin/clang --version
-
-          echo
-          echo "Clang location:"
-          which toolchains/proton-clang/bin/clang || true
-
-      - name: Configure Kernel
-        working-directory: kernel
-        env:
-          PATH: ${{ github.workspace }}/toolchains/proton-clang/bin:${{ env.PATH }}
-        run: |
-          set -e
-
-          echo "=========================================="
-          echo "CONFIGURING KERNEL"
-          echo "=========================================="
-
-          mkdir -p ../out
-
-          DEFCONFIG=""
-
-          for cfg in \
-            vili_defconfig \
-            vendor/vili_defconfig \
-            vendor_xiaomi_vili_defconfig \
-            xiaomi_vili_defconfig \
-            sm8350-vili_defconfig \
-            vendor_xiaomi_sm8350_defconfig \
-            vendor/sm8350_defconfig
-          do
-            if [ -f "arch/arm64/configs/$cfg" ]; then
-              DEFCONFIG="$cfg"
-              break
-            fi
-          done
-
-          if [ -z "$DEFCONFIG" ]; then
-            echo "ERROR: Vili defconfig was not found."
-            echo
-            echo "Available configs:"
-            find arch/arm64/configs -maxdepth 1 -type f | sort
-            exit 1
-          fi
-
+          export PATH="$HOME/proton-clang/bin:$PATH"
+          
+          # Find defconfig dynamically
+          DEFCONFIG=$(find arch/arm64/configs/ -name "*vili*" -o -name "*vendor*" | head -n 1 | xargs basename 2>/dev/null || echo "vili_defconfig")
           echo "Using defconfig: $DEFCONFIG"
+          
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
+          make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-          make O=../out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            "$DEFCONFIG"
-
-          echo
-          echo "Defconfig completed successfully."
-
-      - name: Build Kernel
-        working-directory: kernel
-        env:
-          PATH: ${{ github.workspace }}/toolchains/proton-clang/bin:${{ env.PATH }}
+      - name: Package AnyKernel3
         run: |
-          set -o pipefail
+          git clone https://github.com/osm0sis/AnyKernel3.git AK3
+          
+          # Find output kernel image
+          IMAGE_PATH=$(find out/arch/arm64/boot/ -name "Image.gz-dtb" -o -name "Image.gz" | head -n 1)
+          cp $IMAGE_PATH AK3/Image.gz-dtb || cp $IMAGE_PATH AK3/Image.gz
+          
+          cd AK3
+          cat << 'EOF' > anykernel.sh
+          properties() { '
+          kernel.string=RED Kernel [Stock MIUI / HyperOS & MIUI Ports Only]
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuntil=0
+          device.name1=vili
+          device.name2=vili_global
+          device.name3=vili_in
+          supported.versions=11 - 15
+          supported.patchlevels=
+          '; }
+          block=auto;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          . tools/ak3-core.sh;
+          split_boot;
+          flash_boot;
+          EOF
+          zip -r9 ../RED-vili-Stock-Ports-Kernel-$(date +%Y%m%d).zip * -x .git\* README.md *placeholder
 
-          echo "=========================================="
-          echo "STARTING VILI KERNEL BUILD"
-          echo "=========================================="
-
-          mkdir -p ../out
-
-          make -j"$(nproc)" \
-            O=../out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            V=1 \
-            2>&1 | tee ../build.log
-
-          STATUS=${PIPESTATUS[0]}
-
-          echo
-          echo "=========================================="
-          echo "BUILD EXIT CODE: $STATUS"
-          echo "=========================================="
-
-          if [ "$STATUS" -ne 0 ]; then
-            echo
-            echo "=========================================="
-            echo "LAST 250 BUILD LOG LINES"
-            echo "=========================================="
-            tail -250 ../build.log
-
-            echo
-            echo "=========================================="
-            echo "ERROR LINES"
-            echo "=========================================="
-
-            grep -Ein \
-              'error:|fatal:|undefined reference|No rule to make target|recipe for target|make: \*\*\*|FAILED' \
-              ../build.log | tail -100 || true
-
-            exit "$STATUS"
-          fi
-
-      - name: Check Kernel Image
-        if: success()
-        working-directory: kernel
-        run: |
-          echo "=========================================="
-          echo "CHECKING KERNEL OUTPUT"
-          echo "=========================================="
-
-          find ../out/arch/arm64/boot \
-            -maxdepth 3 \
-            -type f \
-            -printf '%p\n' | sort
-
-          if [ -f ../out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "FOUND: Image.gz-dtb"
-          elif [ -f ../out/arch/arm64/boot/Image.gz ]; then
-            echo "FOUND: Image.gz"
-          elif [ -f ../out/arch/arm64/boot/Image ]; then
-            echo "FOUND: Image"
-          else
-            echo "ERROR: No kernel image found."
-            exit 1
-          fi
-
-      - name: Package Kernel
-        if: success()
-        run: |
-          mkdir -p AnyKernel3
-
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-          elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz AnyKernel3/
-          elif [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image AnyKernel3/
-          fi
-
-          cp -r kernel/include AnyKernel3/ 2>/dev/null || true
-
-          cd AnyKernel3
-          zip -r ../vili-kernel.zip . >/dev/null
-
-      - name: Upload Kernel
-        if: always()
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vili-kernel-build
-          path: |
-            vili-kernel.zip
-            build.log
-            out/arch/arm64/boot/Image
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/Image.gz-dtb
-          if-no-files-found: ignore
+          name: vili-kernel
+          path: RED-vili-Stock-Ports-Kernel-*.zip
