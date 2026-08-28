@@ -7,24 +7,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Environment and Toolchain
+      - name: Setup Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip crossbuild-essential-arm64
-          
-          # Clone official AOSP Clang 14 directly from Android Google Source
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $HOME/aosp-repo
-          mkdir -p $HOME/clang
-          cp -r $HOME/aosp-repo/clang-r450784d/* $HOME/clang/ || cp -r $HOME/aosp-repo/clang-r*/* $HOME/clang/
-          rm -rf $HOME/aosp-repo
-          
-          # Fetch Kernel Source
-          git clone --depth=1 https://github.com/vili-develop/kernel_xiaomi_vili-RED.git kernel_src
+
+      - name: Checkout AOSP Clang Toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: 'LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b'
+          path: 'clang'
+
+      - name: Checkout Kernel Source Tree
+        uses: actions/checkout@v4
+        with:
+          repository: 'vili-develop/kernel_xiaomi_vili-RED'
+          path: 'kernel_src'
 
       - name: Apply Techpack Audio Patches and Compile
         run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           cd kernel_src
-          export PATH="$HOME/clang/bin:$PATH"
           
           # Fix Techpack Audio DSP Fallthrough Errors
           find . -type f -name "q6afe.c" -exec sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' {} + || true
