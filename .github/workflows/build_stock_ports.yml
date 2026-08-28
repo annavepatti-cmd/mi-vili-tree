@@ -34,9 +34,15 @@ jobs:
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-          # Locate defconfig and compile
-          DEFCONFIG_FILE=$(find arch/arm64/configs -type f \( -name "*vili*" -o -name "*sm8350*" \) | head -n 1)
-          DEFCONFIG_NAME=$(basename "$DEFCONFIG_FILE")
+          # Target exact defconfig file
+          if [ -f "arch/arm64/configs/vendor/vili_defconfig" ]; then
+            DEFCONFIG_NAME="vendor/vili_defconfig"
+          elif [ -f "arch/arm64/configs/vili_defconfig" ]; then
+            DEFCONFIG_NAME="vili_defconfig"
+          else
+            DEFCONFIG_NAME="vendor/sm8350_defconfig"
+          fi
+
           echo "Building Stock/MIUI Kernel with Defconfig: $DEFCONFIG_NAME"
 
           make O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ $DEFCONFIG_NAME
