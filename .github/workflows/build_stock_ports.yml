@@ -7,31 +7,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Environment and Toolchain
+      - name: Setup Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip
-          
-          # Download prebuilt Google AOSP Clang Compiler
-          mkdir -p $HOME/aosp-clang
-          wget -q https://github.com/ZyC2001/clang-build-catalogue/releases/download/14.0.6-20230109/Clang-14.0.6.tar.gz
-          tar -xf Clang-14.0.6.tar.gz -C $HOME/aosp-clang
-          rm Clang-14.0.6.tar.gz
-          
-          # Fetch Stock/Ports Kernel Source
+          sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip crossbuild-essential-arm64
+
+      - name: Setup Clang Toolchain
+        uses: saber-ok/setup-clang@v1
+        with:
+          compiler: clang-r450784d
+
+      - name: Clone Kernel Source Tree
+        run: |
           git clone --depth=1 https://github.com/vili-develop/kernel_xiaomi_vili-RED.git kernel_src
 
       - name: Apply Techpack Audio Patches and Compile
         run: |
           cd kernel_src
-          export PATH="$HOME/aosp-clang/bin:$PATH"
           
           # Fix Techpack Audio DSP Fallthrough Errors
           find . -type f -name "q6afe.c" -exec sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' {} + || true
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-          # Locate defconfig and compile for MIUI/HyperOS
+          # Locate defconfig and compile
           DEFCONFIG_FILE=$(find arch/arm64/configs -type f \( -name "*vili*" -o -name "*sm8350*" \) | head -n 1)
           DEFCONFIG_NAME=$(basename "$DEFCONFIG_FILE")
           echo "Building Stock/MIUI Kernel with Defconfig: $DEFCONFIG_NAME"
