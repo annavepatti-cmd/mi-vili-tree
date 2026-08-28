@@ -7,20 +7,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Environment and Fetch Source
+      - name: Setup Environment and Toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip
           
-          # Fetch AOSP Clang 14 (r450784d)
+          # Download prebuilt Google AOSP Clang Compiler
           mkdir -p $HOME/aosp-clang
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz
-          tar -xf clang-r450784d.tar.gz -C $HOME/aosp-clang
-          rm clang-r450784d.tar.gz
+          wget -q https://github.com/ZyC2001/clang-build-catalogue/releases/download/14.0.6-20230109/Clang-14.0.6.tar.gz
+          tar -xf Clang-14.0.6.tar.gz -C $HOME/aosp-clang
+          rm Clang-14.0.6.tar.gz
           
+          # Fetch Stock/Ports Kernel Source
           git clone --depth=1 https://github.com/vili-develop/kernel_xiaomi_vili-RED.git kernel_src
 
-      - name: Apply Audio Patches and Build Kernel
+      - name: Apply Techpack Audio Patches and Compile
         run: |
           cd kernel_src
           export PATH="$HOME/aosp-clang/bin:$PATH"
@@ -30,10 +31,10 @@ jobs:
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-          # Locate defconfig and compile
+          # Locate defconfig and compile for MIUI/HyperOS
           DEFCONFIG_FILE=$(find arch/arm64/configs -type f \( -name "*vili*" -o -name "*sm8350*" \) | head -n 1)
           DEFCONFIG_NAME=$(basename "$DEFCONFIG_FILE")
-          echo "Building with Defconfig: $DEFCONFIG_NAME"
+          echo "Building Stock/MIUI Kernel with Defconfig: $DEFCONFIG_NAME"
 
           make O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ $DEFCONFIG_NAME
           make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
