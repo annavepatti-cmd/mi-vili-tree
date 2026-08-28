@@ -28,40 +28,39 @@ jobs:
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-      - name: Locate Kernel Directory and Build Image
+      - name: Build Kernel Image
         run: |
           export PATH="$HOME/proton-clang/bin:$PATH"
           
-          # Find where arch/arm64/configs actually lives in the repo
-          CONFIG_DIR=$(find . -type d -path "*/arch/arm64/configs" | head -n 1)
+          # Find any file named *defconfig in the repo to locate kernel root
+          DEFCONFIG_FILE=$(find . -type f -name "*defconfig" | head -n 1)
           
-          if [ -z "$CONFIG_DIR" ]; then
-            echo "ERROR: Could not locate arch/arm64/configs in the repo!"
+          if [ -z "$DEFCONFIG_FILE" ]; then
+            echo "Tree contents listing:"
+            ls -la
+            echo "ERROR: No defconfig found in repository!"
             exit 1
           fi
           
-          # Move into the root kernel directory containing arch/
-          KERNEL_ROOT=$(dirname $(dirname $(dirname "$CONFIG_DIR")))
-          cd "$KERNEL_ROOT"
-          echo "Working directory changed to: $(pwd)"
+          # Get path to kernel root based on arch/ directory
+          CONFIGS_DIR=$(dirname "$DEFCONFIG_FILE")
+          KERNEL_ROOT=$(echo "$CONFIGS_DIR" | sed 's|/arch/arm64/configs.*||')
           
-          # Find relative defconfig path
-          DEFCONFIG=$(find arch/arm64/configs -type f \( -name "*vili*" -o -name "*sm8350*" \) | sed 's|arch/arm64/configs/||' | head -n 1)
-          
-          if [ -z "$DEFCONFIG" ]; then
-            echo "ERROR: Could not locate defconfig inside $CONFIG_DIR"
-            exit 1
+          if [ -d "$KERNEL_ROOT" ]; then
+            cd "$KERNEL_ROOT"
           fi
           
-          echo "Selected Defconfig: $DEFCONFIG"
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
+          DEFCONFIG_NAME=$(basename "$DEFCONFIG_FILE")
+          echo "Building with Defconfig: $DEFCONFIG_NAME inside $(pwd)"
+          
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG_NAME
           make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       - name: Package AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AK3
           
-          IMAGE_PATH=$(find . -type f \( -name "Image.gz-dtb" -o -name "Image.gz" \) | grep "out/arch/arm64/boot" | head -n 1)
+          IMAGE_PATH=$(find . -type f \( -name "Image.gz-dtb" -o -name "Image.gz" \) | grep "arch/arm64/boot" | head -n 1)
           cp $IMAGE_PATH AK3/Image.gz-dtb || cp $IMAGE_PATH AK3/Image.gz
           
           cd AK3
