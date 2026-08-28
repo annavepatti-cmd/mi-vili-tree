@@ -7,17 +7,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Environment and Clang Toolchain
+      - name: Setup Environment and Toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip crossbuild-essential-arm64
           
-          # Download Clang with -L flag to follow HTTP redirects cleanly
-          mkdir -p $HOME/clang
-          curl -L "https://raw.githubusercontent.com/ZyC2001/Clang-Build-Catalogue/main/clang-r450784d.tar.gz" | tar -xz -C $HOME/clang || \
-          curl -L "https://gitlab.com/panchajanya1999/azure-clang/-/archive/master/azure-clang-master.tar.gz" | tar -xz --strip-components=1 -C $HOME/clang
+          # Clone AOSP Clang directly from GitLab mirror (no tar/curl issues)
+          git clone --depth=1 https://gitlab.com/reaganknn/clang-r450784d.git $HOME/clang
           
-          # Clone Stock/Ports Kernel Source
+          # Fetch Kernel Source
           git clone --depth=1 https://github.com/vili-develop/kernel_xiaomi_vili-RED.git kernel_src
 
       - name: Apply Techpack Audio Patches and Compile
