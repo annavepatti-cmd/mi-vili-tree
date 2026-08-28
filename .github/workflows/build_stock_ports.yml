@@ -35,6 +35,11 @@ jobs:
           find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_KSU/d' {} + || true
           find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_SUSFS/d' {} + || true
 
+      - name: List Available Defconfigs
+        run: |
+          echo "=== Config files found in repository ==="
+          find kernel_src/arch/arm64/configs/ -type f
+
       - name: Apply Techpack Audio Patches and Compile
         run: |
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
@@ -45,16 +50,21 @@ jobs:
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-          # Find valid defconfig inside arch/arm64/configs
-          DEFCONFIG_PATH=$(find arch/arm64/configs/ -type f \( -name "*vili*" -o -name "*sm8350*" -o -name "*defconfig*" \) | head -n 1)
-          
-          if [ -z "$DEFCONFIG_PATH" ]; then
-            echo "ERROR: No valid defconfig found in arch/arm64/configs/"
-            exit 1
+          # Target exact defconfig file manually
+          if [ -f "arch/arm64/configs/vendor/vili_defconfig" ]; then
+            DEFCONFIG_NAME="vendor/vili_defconfig"
+          elif [ -f "arch/arm64/configs/vili_defconfig" ]; then
+            DEFCONFIG_NAME="vili_defconfig"
+          elif [ -f "arch/arm64/configs/vendor/lahaina_defconfig" ]; then
+            DEFCONFIG_NAME="vendor/lahaina_defconfig"
+          elif [ -f "arch/arm64/configs/lahaina_defconfig" ]; then
+            DEFCONFIG_NAME="lahaina_defconfig"
+          else
+            # Grab only files ending strictly with _defconfig
+            DEFCONFIG_PATH=$(find arch/arm64/configs/ -type f -name "*_defconfig" | head -n 1)
+            DEFCONFIG_NAME="${DEFCONFIG_PATH#arch/arm64/configs/}"
           fi
 
-          # Strip 'arch/arm64/configs/' prefix so make recognizes it
-          DEFCONFIG_NAME="${DEFCONFIG_PATH#arch/arm64/configs/}"
           echo "Building Stock/MIUI Kernel with Defconfig: $DEFCONFIG_NAME"
 
           # Generate Configuration
