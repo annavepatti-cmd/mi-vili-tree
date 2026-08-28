@@ -22,18 +22,29 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
+      - name: Find Kernel Root Directory
+        id: kernel-dir
+        run: |
+          # Locate the directory containing Makefile that defines ARCH or arm64 configs
+          KDIR=$(find . -maxdepth 3 -type f -name "Makefile" -exec grep -q "ARCH" {} \; -print | head -n 1 | xargs dirname)
+          if [ -z "$KDIR" ]; then KDIR="."; fi
+          echo "Kernel directory found at: $KDIR"
+          echo "dir=$KDIR" >> $GITHUB_OUTPUT
+
       - name: Apply Techpack Audio Patches
         run: |
+          cd ${{ steps.kernel-dir.outputs.dir }}
           find . -type f -name "q6afe.c" -exec sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' {} + || true
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
       - name: Build Kernel Image
         run: |
+          cd ${{ steps.kernel-dir.outputs.dir }}
           export PATH="$HOME/proton-clang/bin:$PATH"
           
           # Find defconfig dynamically
-          DEFCONFIG=$(find arch/arm64/configs/ -name "*vili*" -o -name "*vendor*" | head -n 1 | xargs basename 2>/dev/null || echo "vili_defconfig")
+          DEFCONFIG=$(find arch/arm64/configs/ -name "*vili*" -o -name "*vendor*" | head -n 1 | xargs basename 2>/devnull || echo "vili_defconfig")
           echo "Using defconfig: $DEFCONFIG"
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
@@ -41,10 +52,10 @@ jobs:
 
       - name: Package AnyKernel3
         run: |
+          KDIR="${{ steps.kernel-dir.outputs.dir }}"
           git clone https://github.com/osm0sis/AnyKernel3.git AK3
           
-          # Find output kernel image
-          IMAGE_PATH=$(find out/arch/arm64/boot/ -name "Image.gz-dtb" -o -name "Image.gz" | head -n 1)
+          IMAGE_PATH=$(find $KDIR/out/arch/arm64/boot/ -name "Image.gz-dtb" -o -name "Image.gz" | head -n 1)
           cp $IMAGE_PATH AK3/Image.gz-dtb || cp $IMAGE_PATH AK3/Image.gz
           
           cd AK3
