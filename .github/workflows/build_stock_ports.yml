@@ -24,6 +24,20 @@ jobs:
           repository: 'vili-develop/kernel_xiaomi_vili-RED'
           path: 'kernel_src'
 
+      - name: Setup KernelSU & Fix Drivers Kconfig
+        run: |
+          cd kernel_src
+          
+          # Clone KernelSU driver into drivers/kernelsu if missing
+          if [ ! -d "drivers/kernelsu" ]; then
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash - || git clone https://github.com/tiann/KernelSU drivers/kernelsu || true
+          fi
+
+          # Safely remove invalid KernelSU Kconfig reference if setup failed or folder is still missing
+          if [ ! -f "drivers/kernelsu/Kconfig" ]; then
+            sed -i '/kernelsu\/Kconfig/d' drivers/Kconfig || true
+          fi
+
       - name: Apply Techpack Audio Patches and Compile
         run: |
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
