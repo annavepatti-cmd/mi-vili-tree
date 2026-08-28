@@ -31,7 +31,17 @@ jobs:
       - name: Build Kernel Image
         run: |
           export PATH="$HOME/proton-clang/bin:$PATH"
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 vili_defconfig
+          
+          # Find relative defconfig path under arch/arm64/configs/
+          DEFCONFIG=$(find arch/arm64/configs -type f \( -name "*vili*" -o -name "*sm8350*" \) | sed 's|arch/arm64/configs/||' | head -n 1)
+          
+          if [ -z "$DEFCONFIG" ]; then
+            echo "ERROR: Could not locate defconfig in arch/arm64/configs/"
+            exit 1
+          fi
+          
+          echo "Selected Defconfig: $DEFCONFIG"
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG
           make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       - name: Package AnyKernel3
