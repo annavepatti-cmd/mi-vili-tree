@@ -7,52 +7,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 1
-
-      - name: Install Dependencies
+      - name: Setup Environment and Fetch Source
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev bzip2 libbz2-dev libssl-dev libelf-dev flex bison bc ccache zip unzip
-
-      - name: Setup Proton Clang Toolchain
-        run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
+          git clone --depth=1 https://github.com/vili-develop/kernel_xiaomi_vili-RED.git kernel_src
 
-      - name: Apply Techpack Audio Patches
+      - name: Apply Audio Patches and Build Kernel
         run: |
+          cd kernel_src
+          export PATH="$HOME/proton-clang/bin:$PATH"
+          
+          # Fix Techpack Audio DSP Fallthrough Errors
           find . -type f -name "q6afe.c" -exec sed -i 's/if (clkinfo_per_port\[idx\].clk_src_name == NULL)/if (\!clkinfo_per_port\[idx\].clk_src_name\[0\])/g' {} + || true
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-      - name: Build Kernel Image
-        run: |
-          export PATH="$HOME/proton-clang/bin:$PATH"
-          
-          # Find any file named *defconfig in the repo to locate kernel root
-          DEFCONFIG_FILE=$(find . -type f -name "*defconfig" | head -n 1)
-          
-          if [ -z "$DEFCONFIG_FILE" ]; then
-            echo "Tree contents listing:"
-            ls -la
-            echo "ERROR: No defconfig found in repository!"
-            exit 1
-          fi
-          
-          # Get path to kernel root based on arch/ directory
-          CONFIGS_DIR=$(dirname "$DEFCONFIG_FILE")
-          KERNEL_ROOT=$(echo "$CONFIGS_DIR" | sed 's|/arch/arm64/configs.*||')
-          
-          if [ -d "$KERNEL_ROOT" ]; then
-            cd "$KERNEL_ROOT"
-          fi
-          
+          # Locate defconfig and compile
+          DEFCONFIG_FILE=$(find arch/arm64/configs -type f \( -name "*vili*" -o -name "*sm8350*" \) | head -n 1)
           DEFCONFIG_NAME=$(basename "$DEFCONFIG_FILE")
-          echo "Building with Defconfig: $DEFCONFIG_NAME inside $(pwd)"
-          
+          echo "Building with Defconfig: $DEFCONFIG_NAME"
+
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 $DEFCONFIG_NAME
           make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
@@ -60,8 +36,15 @@ jobs:
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git AK3
           
-          IMAGE_PATH=$(find . -type f \( -name "Image.gz-dtb" -o -name "Image.gz" \) | grep "arch/arm64/boot" | head -n 1)
-          cp $IMAGE_PATH AK3/Image.gz-dtb || cp $IMAGE_PATH AK3/Image.gz
+          # Search anywhere inside kernel_src for the built kernel binary
+          IMAGE_PATH=$(find kernel_src/ -type f \( -name "Image.gz-dtb" -o -name "Image.gz" \) | head -n 1)
+          
+          if [ -z "$IMAGE_PATH" ]; then
+            echo "ERROR: Compiled Kernel Image not found!"
+            exit 1
+          fi
+          
+          cp "$IMAGE_PATH" AK3/Image.gz-dtb || cp "$IMAGE_PATH" AK3/Image.gz
           
           cd AK3
           cat << 'EOF' > anykernel.sh
