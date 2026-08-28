@@ -45,25 +45,26 @@ jobs:
           find . -type f -name "q6afe.c" -exec sed -i 's/.*case AFE_PORT_CMD_DEVICE_STOP:/\t\t\/* fallthrough *\/\n&/g' {} + || true
           find . -type f -name "q6asm.c" -exec sed -i 's/.*case ADM_PATH_NONLIVE_REC:/\t\t\/* fallthrough *\/\n&/g' {} + || true
 
-          # Target exact defconfig file
-          if [ -f "arch/arm64/configs/vendor/vili_defconfig" ]; then
-            DEFCONFIG_NAME="vendor/vili_defconfig"
-          elif [ -f "arch/arm64/configs/vili_defconfig" ]; then
-            DEFCONFIG_NAME="vili_defconfig"
-          else
-            DEFCONFIG_NAME="vendor/sm8350_defconfig"
+          # Find valid defconfig inside arch/arm64/configs
+          DEFCONFIG_PATH=$(find arch/arm64/configs/ -type f \( -name "*vili*" -o -name "*sm8350*" -o -name "*defconfig*" \) | head -n 1)
+          
+          if [ -z "$DEFCONFIG_PATH" ]; then
+            echo "ERROR: No valid defconfig found in arch/arm64/configs/"
+            exit 1
           fi
 
+          # Strip 'arch/arm64/configs/' prefix so make recognizes it
+          DEFCONFIG_NAME="${DEFCONFIG_PATH#arch/arm64/configs/}"
           echo "Building Stock/MIUI Kernel with Defconfig: $DEFCONFIG_NAME"
 
           # Generate Configuration
-          make O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ $DEFCONFIG_NAME
+          make O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ "$DEFCONFIG_NAME"
           
-          # Disable WERROR so warnings don't trigger Error 2
+          # Disable WERROR so minor warnings don't stop build
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' out/.config || true
           echo "CONFIG_SECTION_MISMATCH_WARN_ONLY=y" >> out/.config
 
-          # Compile with explicit LLVM toolchain flags
+          # Compile Kernel
           make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
