@@ -24,19 +24,22 @@ jobs:
           repository: 'vili-develop/kernel_xiaomi_vili-RED'
           path: 'kernel_src'
 
-      - name: Setup KernelSU & Fix Drivers Kconfig
+      - name: Remove KernelSU & SuSFS Fully
         run: |
           cd kernel_src
           
-          # Clone KernelSU driver into drivers/kernelsu if missing
-          if [ ! -d "drivers/kernelsu" ]; then
-            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash - || git clone https://github.com/tiann/KernelSU drivers/kernelsu || true
-          fi
+          # Delete source directories if present
+          rm -rf drivers/kernelsu drivers/susfs fs/susfs
+          
+          # Remove KernelSU & SuSFS references across all Kconfig files
+          find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/kernelsu/d' {} + || true
+          find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/susfs/d' {} + || true
+          find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/KSU/d' {} + || true
+          find . -type f \( -name "Kconfig*" -o -name "Makefile*" \) -exec sed -i '/SUSFS/d' {} + || true
 
-          # Safely remove invalid KernelSU Kconfig reference if setup failed or folder is still missing
-          if [ ! -f "drivers/kernelsu/Kconfig" ]; then
-            sed -i '/kernelsu\/Kconfig/d' drivers/Kconfig || true
-          fi
+          # Strip KSU and SuSFS configs from defconfigs
+          find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_KSU/d' {} + || true
+          find arch/arm64/configs/ -type f -exec sed -i '/CONFIG_SUSFS/d' {} + || true
 
       - name: Apply Techpack Audio Patches and Compile
         run: |
